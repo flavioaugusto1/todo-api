@@ -1,5 +1,5 @@
 import express from 'express'
-import { randomUUID } from 'crypto'
+import { v4, validate } from 'uuid'
 
 const app = express()
 
@@ -7,10 +7,66 @@ app.use(express.json())
 
 const users = []
 
-function verifyUsernameExists(request, response, next) {
-    const { username } = request.headers
+// function verifyUsernameExists(request, response, next) {
+//     const { username } = request.headers
 
-    const user = users.find((user) => user.username === username)
+//     const user = users.find((user) => user.username === username)
+
+//     if (!user) {
+//         return response.status(404).json({ error: 'Usuário não encontrado' })
+//     }
+
+//     request.user = user
+//     next()
+// }
+
+function checksCreateTodosUserAvailability(request, response, next) {
+    const { id } = request.headers
+
+    const user = users.find((user) => user.id === id)
+
+    if ((!user.pro && user.todos.length < 10) || user.pro) {
+        next()
+    }
+
+    return response
+        .status(400)
+        .json({ error: 'Você não pode cadastrar mais tasks' })
+}
+
+function checksTodoExists(request, response, next) {
+    const userID = request.headers.id
+    const { id } = request.params
+
+    if (!validate(id)) {
+        return response
+            .status(400)
+            .json({ error: 'Você informou um ID de task inválido' })
+    }
+
+    const user = users.find((user) => user.id === userID)
+
+    if (!user) {
+        return response
+            .status(400)
+            .json({ error: 'Você informou um usuário que não existe' })
+    }
+
+    const verifyIfExistTaskInUser = user.todos.some((task) => task.id === id)
+
+    if (!verifyIfExistTaskInUser) {
+        return response.status(400).json({
+            error: 'Você informou uma task que não existe para esse usuário',
+        })
+    }
+
+    next()
+}
+
+function findUserById(request, response, next) {
+    const { id } = request.headers
+
+    const user = users.find((user) => user.id === id)
 
     if (!user) {
         return response.status(404).json({ error: 'Usuário não encontrado' })
@@ -23,19 +79,22 @@ function verifyUsernameExists(request, response, next) {
 app.post('/users', (request, response) => {
     const { name, username } = request.body
 
-    users.push({
-        id: randomUUID(),
+    const newUser = {
+        id: v4(),
         name,
+        pro: false,
         username,
         todos: [],
-    })
+    }
 
-    response.status(201).send()
+    users.push(newUser)
+
+    response.status(201).json({ id: newUser.id })
 })
 
-app.use(verifyUsernameExists)
+app.use(findUserById)
 
-app.get('/todos', (request, response) => {
+app.get('/todos', checksCreateTodosUserAvailability, (request, response) => {
     const { user } = request
 
     return response.json(user.todos)
@@ -46,7 +105,7 @@ app.post('/todos', (request, response) => {
     const { title, deadline } = request.body
 
     const newTask = {
-        id: randomUUID(),
+        id: v4(),
         title,
         done: false,
         deadline: new Date(deadline),
@@ -58,7 +117,7 @@ app.post('/todos', (request, response) => {
     return response.status(200).json(newTask)
 })
 
-app.put('/todos/:id', (request, response) => {
+app.put('/todos/:id', checksTodoExists, (request, response) => {
     const { user } = request
     const { id } = request.params
     const { title, deadline } = request.body
@@ -77,7 +136,7 @@ app.put('/todos/:id', (request, response) => {
     return response.send({ message: 'Tarefa atualizada com sucesso' })
 })
 
-app.patch('/todos/:id/done', (request, response) => {
+app.patch('/todos/:id/done', checksTodoExists, (request, response) => {
     const { user } = request
     const { id } = request.params
 
@@ -94,7 +153,7 @@ app.patch('/todos/:id/done', (request, response) => {
     return response.status(204).send()
 })
 
-app.delete('/todos/:id', (request, response) => {
+app.delete('/todos/:id', checksTodoExists, (request, response) => {
     const { user } = request
     const { id } = request.params
 
